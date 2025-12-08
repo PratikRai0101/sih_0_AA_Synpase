@@ -5,9 +5,12 @@ import LogDisplay from './LogDisplay';
 import type { AnalysisLog } from '../types'; 
 import { useAnalysis, type TaxaData } from '../context/AnalysisContext';
 
-// --- Constants & Types ---
-const API_BASE_URL = 'http://127.0.0.1:8000'; 
+// --- Constants ---
+const API_BASE_URL = 'http://localhost:8000'; 
 const UPLOAD_ENDPOINT = `${API_BASE_URL}/upload`;
+// FIX: Point to local proxy to avoid CORS
+const TEXT_API_ENDPOINT = `${API_BASE_URL}/api/text-analysis`; 
+const WS_BASE_URL = 'ws://localhost:8000';
 const FILE_ID_KEY = 'edna_analysis_file_id';
 
 interface UploadResponse {
@@ -22,6 +25,7 @@ export default function Analysis(): JSX.Element {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [logs, setLogs] = useState<AnalysisLog[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [backendStatus, setBackendStatus] = useState<'unknown' | 'checking' | 'online' | 'offline'>('unknown');
   const [currentFileId, setCurrentFileId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -44,14 +48,13 @@ export default function Analysis(): JSX.Element {
     addRecentAnalysisRef.current = addRecentAnalysis;
   }, [updateAnalysisData, addTaxaData, addRecentAnalysis]);
 
-  // --- WebSocket Connection Handler ---
   const connectWebSocket = useCallback((fileId: string) => {
     if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
     }
 
-    const wsUrl = `ws://127.0.0.1:8000/ws/${fileId}`;
+    const wsUrl = `${WS_BASE_URL}/ws/${fileId}`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
@@ -60,7 +63,6 @@ export default function Analysis(): JSX.Element {
     };
 
     ws.onmessage = (event) => {
-        const line = event.data;
         try {
             const message = JSON.parse(line);
             
@@ -163,7 +165,6 @@ export default function Analysis(): JSX.Element {
     };
   }, []);
 
-  // --- Startup Effect: Check Local Storage for existing File ID & Cleanup ---
   useEffect(() => {
     const storedFileId = localStorage.getItem(FILE_ID_KEY);
     if (storedFileId) {
@@ -172,30 +173,18 @@ export default function Analysis(): JSX.Element {
         // To run live, remove comments from: connectWebSocket(storedFileId); 
     }
 
-    return () => {
-        if (wsRef.current) {
-            wsRef.current.close();
-        }
-    };
-  }, [connectWebSocket]);
+  useEffect(() => {
+    return () => { if (wsRef.current) wsRef.current.close(); };
+  }, []);
   
-  // --- Input Handlers ---
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-    }
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files?.[0]) setSelectedFile(e.target.files[0]);
+  };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.files[0]) setSelectedFile(e.dataTransfer.files[0]);
   };
 
-  const handleDrop = (event: React.DragEvent) => {
-    event.preventDefault();
-    const file = event.dataTransfer.files[0];
-    if (file) {
-      setSelectedFile(file);
-    }
-  };
-
-  // --- Analysis Start Handler (Using REAL fetch for /upload) ---
   const handleAnalyze = async () => {
     if ((uploadMode === 'file' && !selectedFile) || (uploadMode === 'text' && !textInput.trim())) {
         alert('Please select a file or enter text.');
@@ -257,105 +246,51 @@ export default function Analysis(): JSX.Element {
     } finally {
         setIsAnalyzing(false); 
     }
-};
+  };
 
-  // --- Render ---
-
-  const logHeaderMessage = currentFileId 
-    ? `Analysis Logs (Streaming for ID: ${currentFileId})`
-    : 'Analysis Logs';
+  const logHeaderMessage = logs.length > 0 && logs[0].type === 'json_result'
+    ? 'Analysis Result (JSON)'
+    : currentFileId ? `Analysis Logs (ID: ${currentFileId.substring(0, 8)}...)` : 'Analysis Logs';
 
   return (
-    <div className="p-8 h-screen flex flex-col">
+    <div className="p-8 h-screen flex flex-col bg-gray-50">
       <div className="mb-6">
         <h2 className="text-3xl font-bold text-gray-900">eDNA Analysis</h2>
-        <p className="text-gray-600 mt-1">Upload samples and monitor analysis progress</p>
+        <div className="mt-3 flex items-center gap-2">
+          <div className={`px-3 py-1 rounded-full text-xs font-medium ${backendStatus === 'online' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+            {backendStatus === 'online' ? '🟢 Backend Online' : '🔴 Backend Offline'}
+          </div>
+        </div>
       </div>
 
       <div className="flex-1 grid grid-cols-2 gap-6 min-h-0">
-        <div className="bg-white rounded-lg border border-gray-200 p-6 flex flex-col">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">Upload Sample</h3>
-
+        <div className="bg-white rounded-lg border border-gray-200 p-6 flex flex-col shadow-sm">
+          <h3 className="text-lg font-bold text-gray-900 mb-4">Input Data</h3>
           <div className="flex gap-2 mb-4">
-            <button
-              onClick={() => { setUploadMode('file'); setSelectedFile(null); }}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg font-medium transition-colors ${
-                uploadMode === 'file'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              <FileText className="w-4 h-4" />
-              File Upload
+            <button onClick={() => { setUploadMode('file'); setSelectedFile(null); setLogs([]); }} disabled={isAnalyzing} className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${uploadMode === 'file' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}>
+              <FileText className="w-4 h-4 inline mr-2" /> File Upload
             </button>
-            <button
-              onClick={() => { setUploadMode('text'); setTextInput(''); }}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg font-medium transition-colors ${
-                uploadMode === 'text'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              <Type className="w-4 h-4" />
-              Text Input
+            <button onClick={() => { setUploadMode('text'); setTextInput(''); setLogs([]); }} disabled={isAnalyzing} className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${uploadMode === 'text' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}>
+              <Type className="w-4 h-4 inline mr-2" /> Text Input
             </button>
-          </div>
-
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Sequence Format
-            </label>
-            <select
-              value={fileType}
-              onChange={(e) => setFileType(e.target.value as '.fasta' | '.fastq')}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value=".fasta">.FASTA</option>
-              <option value=".fastq">.FASTQ</option>
-            </select>
           </div>
 
           {uploadMode === 'file' ? (
-            <div
-              onDrop={handleDrop}
-              onDragOver={(e) => e.preventDefault()}
-              onClick={() => fileInputRef.current?.click()}
-              className="flex-1 border-2 border-dashed border-gray-300 rounded-lg p-8 flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 transition-colors"
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                onChange={handleFileSelect}
-                accept=".fasta,.fastq,.fa,.fq"
-                className="hidden"
-              />
+            <div onDrop={handleDrop} onDragOver={(e) => e.preventDefault()} onClick={() => !isAnalyzing && fileInputRef.current?.click()} className="flex-1 border-2 border-dashed border-gray-300 rounded-lg p-8 flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 transition-colors">
+              <input ref={fileInputRef} type="file" onChange={handleFileSelect} className="hidden" />
               <Upload className="w-12 h-12 text-gray-400 mb-4" />
-              <p className="text-gray-700 font-medium mb-1">
-                {selectedFile ? selectedFile.name : 'Drop file here or click to browse'}
-              </p>
-              <p className="text-sm text-gray-500">
-                Supports .FASTA and .FASTQ formats
-              </p>
+              <p className="text-gray-700 font-medium mb-1">{selectedFile ? selectedFile.name : 'Click to browse'}</p>
             </div>
           ) : (
-            <textarea
-              value={textInput}
-              onChange={(e) => setTextInput(e.target.value)}
-              placeholder="Paste your sequence data here..."
-              className="flex-1 border border-gray-300 rounded-lg p-4 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-            />
+            <textarea value={textInput} onChange={(e) => setTextInput(e.target.value)} disabled={isAnalyzing} placeholder="Paste sequence text here..." className="flex-1 border border-gray-300 rounded-lg p-4 font-mono text-sm resize-none" />
           )}
 
-          <button
-            onClick={handleAnalyze}
-            disabled={isAnalyzing || (uploadMode === 'file' && !selectedFile) || (uploadMode === 'text' && !textInput.trim())}
-            className="mt-4 w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-          >
-            {isAnalyzing ? 'Uploading & Connecting...' : 'Start Analysis'}
+          <button onClick={handleAnalyze} disabled={isAnalyzing || (uploadMode === 'file' && !selectedFile) || (uploadMode === 'text' && !textInput.trim())} className="mt-4 w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50">
+            {isAnalyzing ? 'Processing...' : 'Start Analysis'}
           </button>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-6 flex flex-col">
+        <div className="bg-white rounded-lg border border-gray-200 p-6 flex flex-col shadow-sm">
           <h3 className="text-lg font-bold text-gray-900 mb-4">{logHeaderMessage}</h3>
           <div className="flex-1 overflow-y-auto">
             <LogDisplay logs={logs} />

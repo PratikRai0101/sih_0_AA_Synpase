@@ -1,9 +1,8 @@
 'use client';
-import React, { useState, useEffect, useMemo } from 'react';
-import { ChevronDown, ChevronRight, CheckCircle, Clock, AlertCircle, Zap } from 'lucide-react';
-import type { AnalysisLog, PipelineStep  } from '../types'; 
+import React, { useState, useMemo } from 'react';
+import { ChevronDown, ChevronRight, CheckCircle, Clock, AlertCircle, Zap, Code } from 'lucide-react';
+import type { AnalysisLog, PipelineStep } from '../types'; 
 
-// --- 1. Static Pipeline Definition (Hard-coded sequential steps) ---
 const INITIAL_PIPELINE: PipelineStep[] = [
     { id: 'read_sequences', label: 'Reading Sequences...', status: 'pending' },
     { id: 'generate_embeddings', label: 'Generating AI Embeddings...', status: 'pending' },
@@ -14,31 +13,40 @@ const INITIAL_PIPELINE: PipelineStep[] = [
 ];
 
 interface LogDisplayProps {
-  logs: AnalysisLog[];
+  logs: AnalysisLog[]; // Note: might contain { type: 'json_result', data: ... }
 }
 
 export default function LogDisplay({ logs }: LogDisplayProps) {
-    const [pipelineSteps, setPipelineSteps] = useState<PipelineStep[]>(INITIAL_PIPELINE);
     const [expandedLogs, setExpandedLogs] = useState<Set<string>>(new Set());
-    const [lastVerificationUpdate, setLastVerificationUpdate] = useState<AnalysisLog | null>(null);
 
-    // --- 2. State & Effect for Sequential Update ---
+    // --- MODE 1: JSON VIEW (For Text Input) ---
+    // If the first log is our special 'json_result' type, render raw JSON.
+    if (logs.length > 0 && logs[0].type === 'json_result') {
+        const jsonData = (logs[0] as any).data;
+        return (
+            <div className="h-full flex flex-col">
+                <div className="flex items-center gap-2 mb-2 text-sm text-gray-500">
+                    <Code className="w-4 h-4" />
+                    <span>Raw JSON Response</span>
+                </div>
+                <div className="flex-1 bg-gray-900 rounded-lg p-4 overflow-auto border border-gray-700">
+                    <pre className="text-xs font-mono text-green-400 whitespace-pre-wrap break-all">
+                        {JSON.stringify(jsonData, null, 2)}
+                    </pre>
+                </div>
+            </div>
+        );
+    }
     
-    useEffect(() => {
-        if (logs.length === 0) {
-            setPipelineSteps(INITIAL_PIPELINE);
-            setLastVerificationUpdate(null);
-            return;
-        }
+    // --- MODE 2: PIPELINE STEPS VIEW (For File Upload / Socket) ---
+    // (Logic remains exactly as before for sequential steps)
 
-        const lastLog = logs[logs.length - 1];
+    const pipelineSteps = useMemo(() => {
+        if (logs.length === 0) return INITIAL_PIPELINE;
 
-        setPipelineSteps(prevSteps => {
-            const newSteps = [...prevSteps];
-            let changed = false;
-            
-            // Function to find step index by ID
-            const findIndexById = (id: string) => newSteps.findIndex(s => s.id === id);
+        const steps = INITIAL_PIPELINE.map(s => ({...s}));
+        const completedIds = new Set<string>();
+        let lastVerification = null;
 
             const handleCompletion = (stepId: string, resultData?: any) => {
                 const index = findIndexById(stepId);
@@ -98,174 +106,116 @@ export default function LogDisplay({ logs }: LogDisplayProps) {
                 handleCompletion('ncbi_verification');
                 handleCompletion('analysis_complete');
             }
+            if (log.type === 'complete') completedIds.add('analysis_complete');
+        });
 
             // --- E. Handle Verification Updates (Logs WITHIN a step) ---
             if (lastLog.type === 'verification_update') {
                 setLastVerificationUpdate(lastLog);
                 activateStep('ncbi_verification');
             }
-            
-            return changed ? newSteps : prevSteps;
         });
 
+        const verifyStep = steps.find(s => s.id === 'ncbi_verification');
+        if (verifyStep && lastVerification) verifyStep.resultData = lastVerification;
+
+        return steps;
     }, [logs]);
 
-    // --- 3. UI Helper Functions ---
-    
     const toggleLog = (id: string) => {
         const newExpanded = new Set(expandedLogs);
-        if (newExpanded.has(id)) {
-            newExpanded.delete(id);
-        } else {
-            newExpanded.add(id);
-        }
+        if (newExpanded.has(id)) newExpanded.delete(id);
+        else newExpanded.add(id);
         setExpandedLogs(newExpanded);
     };
 
-    const STATUS_MAP = useMemo(() => ({
+    const STATUS_MAP = {
         pending: { icon: Clock, className: 'bg-gray-50 text-gray-500 border border-gray-200' },
         active: { icon: Zap, className: 'bg-blue-50 text-blue-600 border border-blue-200' },
         complete: { icon: CheckCircle, className: 'bg-green-50 text-green-600 border border-green-200' },
         error: { icon: AlertCircle, className: 'bg-red-50 text-red-600 border border-red-200' },
-    }), []);
-
-    const VERIFICATION_COLORS = useMemo(() => ({
-        NOVEL: {bg: 'bg-purple-50', hover: 'hover:bg-purple-100', text: 'text-purple-600', border: 'border-purple-200'},
-        MATCHED: {bg: 'bg-blue-50', hover: 'hover:bg-blue-100', text: 'text-blue-600', border: 'border-blue-200'},
-        COMPLETE: {bg: 'bg-green-50', hover: 'hover:bg-green-100', text: 'text-green-600', border: 'border-green-200'},
-    }), []);
-
-    // --- 4. Render Step Components ---
-
-    const renderPipelineStep = (step: PipelineStep) => {
-        const { icon: Icon, className } = STATUS_MAP[step.status];
-        const isExpanded = expandedLogs.has(step.id);
-        
-        // --- A. Render CLUSTERING RESULT (Collapsible) ---
-        if (step.id === 'clustering_result' && step.status === 'complete') {
-            const log = step.resultData;
-            if (!log) return null;
-
-            return (
-                <div key={step.id} className="border border-gray-200 rounded-lg">
-                    <button
-                        onClick={() => toggleLog(step.id)}
-                        className="w-full flex items-center justify-between p-3 bg-green-50 hover:bg-green-100 transition-colors rounded-lg"
-                    >
-                        <div className="flex items-center gap-3">
-                            <CheckCircle className="w-4 h-4 text-green-600" />
-                            <span className="text-sm font-medium text-green-900">{step.label}</span>
-                        </div>
-                        {isExpanded ? (
-                            <ChevronDown className="w-4 h-4 text-green-600" />
-                        ) : (
-                            <ChevronRight className="w-4 h-4 text-green-600" />
-                        )}
-                    </button>
-                    {isExpanded && (
-                        <div className="p-4 bg-white border-t border-gray-200 space-y-3">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <p className="text-xs text-gray-600">Total Reads</p>
-                                    <p className="text-lg font-bold text-gray-900">{log.total_reads.toLocaleString()}</p>
-                                </div> 
-                                <div>
-                                    <p className="text-xs text-gray-600">Total Clusters</p>
-                                    <p className="text-lg font-bold text-gray-900">{log.total_clusters.toLocaleString()}</p>
-                                </div>
-                                <div>
-                                    <p className="text-xs text-gray-600">Noise Percentage</p>
-                                    <p className="text-lg font-bold text-gray-900">{log.noise_percentage}%</p>
-                                </div>
-                            </div>
-                            <div>
-                                <p className="text-xs text-gray-600 mb-2">Top Groups</p>
-                                <div className="space-y-2">
-                                  {log.top_groups.map((group: any) => (
-                                    <div key={group.group_id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                                      <span className="text-sm text-gray-700">Group {group.group_id}</span>
-                                      <div className="flex items-center gap-3">
-                                        <span className="text-sm text-gray-600">{group.count.toLocaleString()} reads</span>
-                                        <span className="text-sm font-medium text-gray-900">{group.percentage}%</span>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                        </div>
-                    )}
-                </div>
-            );
-        }
-        
-        // --- B. Render NCBI Verification Update Logs (Active streaming collapsible) ---
-        if (step.id === 'ncbi_verification' && step.status !== 'pending') {
-            const log = lastVerificationUpdate || { data: { status: 'PENDING', cluster_id: 'N/A', match_percentage: 0, description: 'Waiting...' } };
-            
-            const statusKey = step.status === 'complete' ? 'COMPLETE' : log.data.status.includes('NOVEL') ? 'NOVEL' : 'MATCHED';
-            const colorMap = VERIFICATION_COLORS[statusKey] || VERIFICATION_COLORS['MATCHED'];
-            
-            const IconComponent = step.status === 'complete' ? CheckCircle : AlertCircle;
-            
-            return (
-                <div key={step.id} className="border border-gray-200 rounded-lg">
-                    <button
-                        onClick={() => toggleLog(step.id)}
-                        className={`w-full flex items-center justify-between p-3 transition-colors rounded-lg ${colorMap.bg} ${colorMap.hover} ${colorMap.border}`}
-                    >
-                        <div className="flex items-center gap-3">
-                            <IconComponent className={`w-4 h-4 ${colorMap.text}`} />
-                            <div className="text-left">
-                                <span className={`text-sm font-medium ${colorMap.text}`}>{step.label}</span>
-                                <span className={`text-xs ml-2 ${colorMap.text}`}>• Cluster {log.data.cluster_id}</span>
-                            </div>
-                        </div>
-                        {isExpanded ? (
-                            <ChevronDown className={`w-4 h-4 ${colorMap.text}`} />
-                        ) : (
-                            <ChevronRight className={`w-4 h-4 ${colorMap.text}`} />
-                        )}
-                    </button>
-                    {isExpanded && (
-                        <div className="p-4 bg-white border-t border-gray-200 space-y-2">
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs text-gray-600">Status</span>
-                                <span className={`text-sm font-medium ${colorMap.text}`}>{log.data.status}</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs text-gray-600">Match Percentage</span>
-                                <span className="text-sm font-medium text-gray-900">{log.data.match_percentage}%</span>
-                            </div>
-                            <div>
-                                <span className="text-xs text-gray-600">Description</span>
-                                <p className="text-sm text-gray-700 mt-1">{log.data.description}</p>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            );
-        }
-
-
-        // --- C. Render Default Sequential Steps (Non-collapsible) ---
-        return (
-            <div key={step.id} className={`flex items-start gap-3 p-3 rounded-lg ${className}`}>
-                <Icon className="w-4 h-4 mt-0.5" />
-                <span className="text-sm font-medium">{step.label}</span>
-            </div>
-        );
     };
 
     return (
         <div className="space-y-3">
-            {logs.length === 0 ? (
-                <div className="text-center py-12 text-gray-500">
-                    <Clock className="w-12 h-12 mx-auto mb-3 text-gray-400" />
-                    <p>Analysis logs will appear here</p>
+             {/* Render Error Logs separately if present */}
+             {logs.some(l => l.type === 'error') && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4"/>
+                    {logs.find(l => l.type === 'error')?.message || 'An error occurred'}
                 </div>
-            ) : (
-                pipelineSteps.map((step) => renderPipelineStep(step))
             )}
+
+            {pipelineSteps.map((step) => {
+                const { icon: Icon, className } = STATUS_MAP[step.status];
+                const isExpanded = expandedLogs.has(step.id);
+                
+                // RENDER CLUSTERING RESULT
+                if (step.id === 'clustering_result' && step.status === 'complete') {
+                    const data = step.resultData;
+                    return (
+                        <div key={step.id} className="border border-gray-200 rounded-lg">
+                            <button onClick={() => toggleLog(step.id)} className="w-full flex items-center justify-between p-3 bg-green-50 hover:bg-green-100 transition-colors rounded-lg">
+                                <div className="flex items-center gap-3">
+                                    <CheckCircle className="w-4 h-4 text-green-600" />
+                                    <span className="text-sm font-medium text-green-900">{step.label}</span>
+                                </div>
+                                {isExpanded ? <ChevronDown className="w-4 h-4 text-green-600" /> : <ChevronRight className="w-4 h-4 text-green-600" />}
+                            </button>
+                            {isExpanded && data && (
+                                <div className="p-4 bg-white border-t border-gray-200 space-y-2 text-sm">
+                                    <div className="flex justify-between"><span>Clusters:</span> <b>{data.total_clusters}</b></div>
+                                    <div className="flex justify-between"><span>Reads:</span> <b>{data.total_reads}</b></div>
+                                    <div className="mt-2 font-medium">Top Groups:</div>
+                                    {data.top_groups?.map((g: any, i: number) => (
+                                        <div key={i} className="pl-2 border-l-2 border-green-200 text-gray-600">
+                                            Group {g.group_id}: {g.count} reads ({g.percentage}%)
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    );
+                }
+
+                // RENDER VERIFICATION
+                if (step.id === 'ncbi_verification' && step.status !== 'pending') {
+                    const data = step.resultData || {};
+                    const isNovel = data.status === 'NOVEL';
+                    const colorClass = step.status === 'complete' ? 'bg-green-50 border-green-200 text-green-700' : 
+                                     isNovel ? 'bg-purple-50 border-purple-200 text-purple-700' : 'bg-blue-50 border-blue-200 text-blue-700';
+
+                    return (
+                        <div key={step.id} className={`border rounded-lg ${colorClass}`}>
+                             <button onClick={() => toggleLog(step.id)} className="w-full flex items-center justify-between p-3 rounded-lg hover:opacity-80 transition-opacity">
+                                <div className="flex items-center gap-3">
+                                    {step.status === 'complete' ? <CheckCircle className="w-4 h-4"/> : <Zap className="w-4 h-4"/>}
+                                    <div className="text-left">
+                                        <div className="text-sm font-medium">{step.label}</div>
+                                        {data.cluster_id && <div className="text-xs opacity-75">Cluster {data.cluster_id}: {data.status}</div>}
+                                    </div>
+                                </div>
+                                {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                            </button>
+                             {isExpanded && data.cluster_id && (
+                                <div className="p-4 bg-white border-t border-gray-200 space-y-2 text-sm text-gray-700">
+                                    <div className="flex justify-between"><span>Status:</span> <b>{data.status}</b></div>
+                                    <div className="flex justify-between"><span>Match:</span> <b>{data.match_percentage}%</b></div>
+                                    <div className="italic text-gray-500">{data.description}</div>
+                                </div>
+                            )}
+                        </div>
+                    )
+                }
+
+                // DEFAULT RENDER
+                return (
+                    <div key={step.id} className={`flex items-start gap-3 p-3 rounded-lg ${className}`}>
+                        <Icon className="w-4 h-4 mt-0.5" />
+                        <span className="text-sm font-medium">{step.label}</span>
+                    </div>
+                );
+            })}
         </div>
     );
 }

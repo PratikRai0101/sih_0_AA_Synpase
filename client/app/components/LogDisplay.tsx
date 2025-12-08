@@ -54,43 +54,55 @@ export default function LogDisplay({ logs }: LogDisplayProps) {
                 }
             };
             
-            // --- A. Handle Completion Logs & Status Advance ---
+            const activateStep = (stepId: string) => {
+                const index = findIndexById(stepId);
+                if (index !== -1 && newSteps[index].status === 'pending') {
+                    newSteps[index] = { ...newSteps[index], status: 'active' };
+                    changed = true;
+                }
+            };
             
-            // 1. Progress Log (e.g., 'read_sequences' or 'generate_embeddings' complete)
+            // --- A. Handle Log Messages (Activate steps based on message content) ---
+            if (lastLog.type === 'log') {
+                const message = lastLog.message.toLowerCase();
+                
+                if (message.includes('reading sequences')) {
+                    activateStep('read_sequences');
+                } else if (message.includes('found') && message.includes('sequences')) {
+                    handleCompletion('read_sequences');
+                } else if (message.includes('generating') && message.includes('embeddings')) {
+                    activateStep('generate_embeddings');
+                } else if (message.includes('running umap')) {
+                    handleCompletion('generate_embeddings');
+                    activateStep('umap_hdbscan');
+                } else if (message.includes('clustering complete')) {
+                    handleCompletion('umap_hdbscan');
+                } else if (message.includes('ncbi verification')) {
+                    activateStep('ncbi_verification');
+                }
+            }
+            
+            // --- B. Handle Progress Messages ---
             if (lastLog.type === 'progress' && lastLog.status === 'complete' && lastLog.step) {
                 handleCompletion(lastLog.step);
             }
             
-            // 2. Clustering Result (Special completion step)
+            // --- C. Handle Clustering Result ---
             if (lastLog.type === 'clustering_result') {
+                handleCompletion('umap_hdbscan');
                 handleCompletion('clustering_result', lastLog.data);
             }
             
-            // 3. Final Completion
+            // --- D. Handle Final Completion ---
             if (lastLog.type === 'complete') {
+                handleCompletion('ncbi_verification');
                 handleCompletion('analysis_complete');
             }
 
-            // --- B. Handle Verification Updates (Logs WITHIN a step) ---
+            // --- E. Handle Verification Updates (Logs WITHIN a step) ---
             if (lastLog.type === 'verification_update') {
                 setLastVerificationUpdate(lastLog);
-                
-                const index = findIndexById('ncbi_verification');
-                if (newSteps[index].status === 'pending') {
-                    newSteps[index] = { ...newSteps[index], status: 'active' };
-                    changed = true;
-                }
-                
-                // Special check to force the verification step to COMPLETE
-                if (lastLog.data && lastLog.data.final_update) { 
-                    handleCompletion('ncbi_verification');
-                }
-            }
-            
-            // --- C. Initial Activation (Activate the first step if the first structured log arrives) ---
-            if (newSteps[0].status === 'pending' && logs.length > 0 && lastLog.type !== 'log' && lastLog.type !== 'INFO') {
-                newSteps[0] = { ...newSteps[0], status: 'active' };
-                changed = true;
+                activateStep('ncbi_verification');
             }
             
             return changed ? newSteps : prevSteps;

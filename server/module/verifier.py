@@ -1,56 +1,115 @@
-from Bio.Blast import NCBIWWW, NCBIXML
 import asyncio
+import aiohttp
+import json
 
 class AsyncBlastVerifier:
+    GCP_API_URL = "https://pug-c-776087882401.europe-west1.run.app/predict/fasta"
+    
     @staticmethod
-    async def verify_stream(sequences, cluster_df, top_n=3):
+    async def verify_stream(sequences, cluster_df, top_n=5):
         """
-        A Generator that yields results one by one.
+        Verify sequences using GCP API and yield results one by one.
+        Streams top N clusters based on abundance.
         """
         abundance = cluster_df['cluster'].value_counts()
         top_clusters = abundance.index[abundance.index != -1][:top_n].tolist()
-
-        for i, cluster_id in enumerate(top_clusters):
-            # 1. Prepare Data
-            indices = cluster_df[cluster_df['cluster'] == cluster_id].index
-            cluster_seqs = [sequences[i] for i in indices]
-            
-            if not cluster_seqs: continue
-            query_seq = max(cluster_seqs, key=len)
-
-            # 2. Run BLAST (Blocking I/O wrapped in thread for async)
-            # We use asyncio.to_thread because NCBIWWW is blocking
-            blast_data = await asyncio.to_thread(AsyncBlastVerifier._run_blast_sync, query_seq)
-
-            # 3. YIELD the result immediately (Don't wait for others)
-            yield {
-                "step": f"Verification {i+1}/{len(top_clusters)}",
-                "cluster_id": int(cluster_id),
-                "status": blast_data['status'],
-                "match_percentage": blast_data['identity'],
-                "description": blast_data['name']
-            }
-
-    @staticmethod
-    def _run_blast_sync(sequence):
+        
+        # Prepare FASTA content from all sequences
+        fasta_content = ""
+        for idx, seq in enumerate(sequences):
+            fasta_content += f">seq_{idx}\n{seq}\n"
         
         try:
-            result_handle = NCBIWWW.qblast("blastn", "nt", sequence, hitlist_size=1)
-            blast_record = NCBIXML.read(result_handle)
+            # Call GCP API once with all sequences
+            async with aiohttp.ClientSession() as session:
+                gcp_results = await AsyncBlastVerifier._call_gcp_api(session, fasta_content)
             
-            if blast_record.alignments:
-                alignment = blast_record.alignments[0]
-                hsp = alignment.hsps[0]
-                identity = (hsp.identities / hsp.align_length) * 100
-                name = alignment.title.split("|")[-1][:60]
+            # Process results by cluster
+            for cluster_idx, cluster_id in enumerate(top_clusters):
+                # Get sequences in this cluster
+                indices = cluster_df[cluster_df['cluster'] == cluster_id].index.tolist()
+                cluster_count = len(indices)
                 
-                if identity >= 99.0: status = "KNOWN (Old)"
-                elif identity >= 97.0: status = "RELATED (Old)"
-                elif "uncultured" in name.lower(): status = "GHOST (Newish)"
-                else: status = "NOVEL (New)"
+                if cluster_count == 0:
+                    continue
+                
+                # Get the top prediction for this cluster from GCP results
+                cluster_predictions = []
+                for idx in indices:
+                    if idx < len(gcp_results):
+                        cluster_predictions.append(gcp_results[idx])
+                
+                if not cluster_predictions:
+                    continue
+                
+                # Sort by confidence (probability) and take the top prediction
+                top_pred = sorted(cluster_predictions, key=lambda x: float(x.get('probability', 0)), reverse=True)[0]
+                
+                genus = top_pred.get('genus', 'Unknown')
+                class_name = top_pred.get('class', 'Unknown')
+                probability = float(top_pred.get('probability', 0))
+                percentage = (cluster_count / len(sequences)) * 100
+                
+                # Format description for consistency
+                description = f"{genus} (Class: {class_name}, {cluster_count} sequences, {percentage:.1f}%)"
+                
+                yield {
+                    "cluster_index": cluster_idx + 1,
+                    "cluster_id": int(cluster_id),
+                    "cluster_count": cluster_count,
+                    "genus": genus,
+                    "class": class_name,
+                    "probability": probability,
+                    "percentage": round(percentage, 1),
+                    "match_percentage": probability,
+                    "description": description
+                }
+        
+        except Exception as e:
+            print(f"GCP API Error: {e}")
+            # Return empty - error will be handled by websocket
+    
+    @staticmethod
+    async def _call_gcp_api(session, fasta_content):
+        """
+        Call the GCP API with FASTA content and return parsed results.
+        """
+        try:
+            # Create form data with FASTA file
+            data = aiohttp.FormData()
+            data.add_field('file', fasta_content, filename='sequences.fasta', content_type='text/plain')
+            
+            # Send request to GCP API
+            async with session.post(
+                AsyncBlastVerifier.GCP_API_URL,
+                data=data,
+                timeout=aiohttp.ClientTimeout(total=120)
+            ) as response:
+                if response.status == 200:
+                    result = await response.json()
                     
-                return {"status": status, "identity": round(identity, 1), "name": name}
-            else:
-                return {"status": "ALIEN (New)", "identity": 0.0, "name": "No match found"}
-        except Exception:
-            return {"status": "ERROR", "identity": 0.0, "name": "Connection Failed"}
+                    # Parse the GCP API response
+                    # Expected format: {"count": N, "results": [...]}
+                    results_list = result.get('results', [])
+                    
+                    # Convert to standardized format
+                    parsed_results = []
+                    for item in results_list:
+                        if isinstance(item, dict):
+                            parsed_results.append({
+                                'genus': item.get('genus', item.get('name', 'Unknown')),
+                                'class': item.get('class', item.get('family', 'Unknown')),
+                                'probability': float(item.get('probability', item.get('confidence', 0)))
+                            })
+                    
+                    return parsed_results
+                else:
+                    print(f"GCP API Error ({response.status}): {await response.text()}")
+                    return []
+        
+        except asyncio.TimeoutError:
+            print("GCP API Timeout")
+            return []
+        except Exception as e:
+            print(f"GCP API Exception: {e}")
+            return []

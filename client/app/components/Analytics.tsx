@@ -64,7 +64,7 @@ export default function Analysis(): JSX.Element {
 
     ws.onmessage = (event) => {
         try {
-            const message = JSON.parse(line);
+            const message = JSON.parse(event.data);
             
             // Convert server message format to client AnalysisLog format
             if (message.type === 'log') {
@@ -126,7 +126,10 @@ export default function Analysis(): JSX.Element {
                     
                     // Calculate novel taxa (those with low probability)
                     const novelCount = taxaArray.filter(t => t.probability < 80).length;
-                    updateAnalysisDataRef.current({ novelTaxa: novelCount });
+                    updateAnalysisDataRef.current({ 
+                        novelTaxa: novelCount,
+                        hasUploadedFile: true,
+                    });
                     
                     // Add to recent analyses
                     addRecentAnalysisRef.current({
@@ -148,8 +151,8 @@ export default function Analysis(): JSX.Element {
                 setLogs(prev => [...prev, { type: 'log', message: JSON.stringify(message) }]);
             }
         } catch (e) {
-            console.error('Failed to parse log from WS:', e, line);
-            setLogs(prev => [...prev, { type: 'log', message: `Failed to parse log: ${line}` }]);
+            console.error('Failed to parse message from WS:', e, event.data);
+            setLogs(prev => [...prev, { type: 'log', message: `Failed to parse message: ${event.data}` }]);
         }
     };
 
@@ -172,6 +175,7 @@ export default function Analysis(): JSX.Element {
         setLogs([{ type: 'log', message: `Found previous session ID: ${storedFileId}. Attempting to reconnect.` }]);
         // To run live, remove comments from: connectWebSocket(storedFileId); 
     }
+  }, []);
 
   useEffect(() => {
     return () => { if (wsRef.current) wsRef.current.close(); };
@@ -248,50 +252,50 @@ export default function Analysis(): JSX.Element {
     }
   };
 
-  const logHeaderMessage = logs.length > 0 && logs[0].type === 'json_result'
-    ? 'Analysis Result (JSON)'
+  const logHeaderMessage = logs.length > 0 && logs[0].type === 'log'
+    ? 'Analysis Logs'
     : currentFileId ? `Analysis Logs (ID: ${currentFileId.substring(0, 8)}...)` : 'Analysis Logs';
 
   return (
-    <div className="p-8 h-screen flex flex-col bg-gray-50">
+    <div className="p-8 h-screen flex flex-col bg-gradient-to-br from-gray-900 to-gray-800">
       <div className="mb-6">
-        <h2 className="text-3xl font-bold text-gray-900">eDNA Analysis</h2>
+        <h2 className="text-4xl font-bold text-white">eDNA Analysis</h2>
         <div className="mt-3 flex items-center gap-2">
-          <div className={`px-3 py-1 rounded-full text-xs font-medium ${backendStatus === 'online' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+          <div className={`px-3 py-1 rounded-full text-sm font-medium ${backendStatus === 'online' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
             {backendStatus === 'online' ? '🟢 Backend Online' : '🔴 Backend Offline'}
           </div>
         </div>
       </div>
 
       <div className="flex-1 grid grid-cols-2 gap-6 min-h-0">
-        <div className="bg-white rounded-lg border border-gray-200 p-6 flex flex-col shadow-sm">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">Input Data</h3>
+        <div className="bg-white rounded-lg p-6 flex flex-col shadow-lg">
+          <h3 className="text-xl font-bold text-gray-900 mb-4">Input Data</h3>
           <div className="flex gap-2 mb-4">
-            <button onClick={() => { setUploadMode('file'); setSelectedFile(null); setLogs([]); }} disabled={isAnalyzing} className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${uploadMode === 'file' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}>
+            <button onClick={() => { setUploadMode('file'); setSelectedFile(null); setLogs([]); }} disabled={isAnalyzing} className={`flex-1 py-3 px-4 rounded-lg font-medium text-base transition-colors ${uploadMode === 'file' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-700'}`}>
               <FileText className="w-4 h-4 inline mr-2" /> File Upload
             </button>
-            <button onClick={() => { setUploadMode('text'); setTextInput(''); setLogs([]); }} disabled={isAnalyzing} className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${uploadMode === 'text' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}>
+            <button onClick={() => { setUploadMode('text'); setTextInput(''); setLogs([]); }} disabled={isAnalyzing} className={`flex-1 py-3 px-4 rounded-lg font-medium text-base transition-colors ${uploadMode === 'text' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-700'}`}>
               <Type className="w-4 h-4 inline mr-2" /> Text Input
             </button>
           </div>
 
           {uploadMode === 'file' ? (
-            <div onDrop={handleDrop} onDragOver={(e) => e.preventDefault()} onClick={() => !isAnalyzing && fileInputRef.current?.click()} className="flex-1 border-2 border-dashed border-gray-300 rounded-lg p-8 flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 transition-colors">
+            <div onDrop={handleDrop} onDragOver={(e) => e.preventDefault()} onClick={() => !isAnalyzing && fileInputRef.current?.click()} className="flex-1 border-2 border-dashed border-gray-300 rounded-lg p-8 flex flex-col items-center justify-center cursor-pointer hover:border-teal-400 transition-colors">
               <input ref={fileInputRef} type="file" onChange={handleFileSelect} className="hidden" />
               <Upload className="w-12 h-12 text-gray-400 mb-4" />
-              <p className="text-gray-700 font-medium mb-1">{selectedFile ? selectedFile.name : 'Click to browse'}</p>
+              <p className="text-gray-700 font-medium mb-1 text-base">{selectedFile ? selectedFile.name : 'Click to browse'}</p>
             </div>
           ) : (
-            <textarea value={textInput} onChange={(e) => setTextInput(e.target.value)} disabled={isAnalyzing} placeholder="Paste sequence text here..." className="flex-1 border border-gray-300 rounded-lg p-4 font-mono text-sm resize-none" />
+            <textarea value={textInput} onChange={(e) => setTextInput(e.target.value)} disabled={isAnalyzing} placeholder="Paste sequence text here..." className="flex-1 border border-gray-300 rounded-lg p-4 font-mono text-base resize-none" />
           )}
 
-          <button onClick={handleAnalyze} disabled={isAnalyzing || (uploadMode === 'file' && !selectedFile) || (uploadMode === 'text' && !textInput.trim())} className="mt-4 w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50">
+          <button onClick={handleAnalyze} disabled={isAnalyzing || (uploadMode === 'file' && !selectedFile) || (uploadMode === 'text' && !textInput.trim())} className="mt-4 w-full bg-teal-600 text-white py-4 rounded-lg font-medium text-lg hover:bg-teal-700 disabled:opacity-50">
             {isAnalyzing ? 'Processing...' : 'Start Analysis'}
           </button>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-6 flex flex-col shadow-sm">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">{logHeaderMessage}</h3>
+        <div className="bg-white rounded-lg p-6 flex flex-col shadow-lg">
+          <h3 className="text-xl font-bold text-gray-900 mb-4">{logHeaderMessage}</h3>
           <div className="flex-1 overflow-y-auto">
             <LogDisplay logs={logs} />
           </div>

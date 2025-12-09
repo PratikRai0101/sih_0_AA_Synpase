@@ -32,19 +32,19 @@ export default function SmartContracts() {
   };
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-8 max-w-4xl mx-auto bg-gradient-to-br from-gray-900 to-gray-800 min-h-screen">
       <div className="text-center mb-12">
-        <div className="inline-block p-4 bg-blue-100 rounded-full mb-4">
-          <Lock className="w-12 h-12 text-blue-600" />
+        <div className="inline-block p-4 bg-teal-100 rounded-full mb-4">
+          <Lock className="w-12 h-12 text-teal-600" />
         </div>
-        <h2 className="text-4xl font-bold text-gray-900 mb-4">Smart Contracts</h2>
-        <p className="text-xl text-gray-600">Blockchain-powered data integrity for marine research</p>
-        <div className="inline-block mt-6 px-6 py-2 bg-blue-50 text-blue-700 rounded-full font-medium">
+        <h2 className="text-4xl font-bold text-white mb-4">Smart Contracts</h2>
+        <p className="text-xl text-gray-300">Blockchain-powered data integrity for marine research</p>
+        <div className="inline-block mt-6 px-6 py-2 bg-teal-900 bg-opacity-50 text-teal-200 rounded-full font-medium border border-teal-700">
           Coming Soon
         </div>
       </div>
 
-      <div className="bg-white rounded-lg border border-gray-200 p-8 mb-8">
+      <div className="bg-white rounded-lg p-8 mb-8 shadow-lg">
         <h3 className="text-2xl font-bold text-gray-900 mb-6 text-center">
           Revolutionary Features
         </h3>
@@ -54,8 +54,8 @@ export default function SmartContracts() {
             return (
               <div key={feature.title} className="flex gap-4 p-4 bg-gray-50 rounded-lg">
                 <div className="flex-shrink-0">
-                  <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                    <Icon className="w-6 h-6 text-blue-600" />
+                  <div className="w-12 h-12 bg-teal-100 rounded-lg flex items-center justify-center">
+                    <Icon className="w-6 h-6 text-teal-600" />
                   </div>
                 </div>
                 <div>
@@ -68,12 +68,12 @@ export default function SmartContracts() {
         </div>
       </div>
 
-      <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg p-8 text-white">
+      <div className="bg-gradient-to-r from-teal-600 to-teal-700 rounded-lg p-8 text-white shadow-lg">
         <div className="flex items-start gap-4 mb-6">
           <Bell className="w-8 h-8 flex-shrink-0" />
           <div>
             <h3 className="text-2xl font-bold mb-2">Be the First to Know</h3>
-            <p className="text-blue-100">
+            <p className="text-teal-100">
               Get notified when smart contract features launch. Join our early access list for
               exclusive updates on blockchain-enabled marine biodiversity research.
             </p>
@@ -87,18 +87,18 @@ export default function SmartContracts() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Enter your email"
-              className="flex-1 px-4 py-3 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="flex-1 px-4 py-3 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-teal-300"
               required
             />
             <button
               type="submit"
-              className="px-6 py-3 bg-white text-blue-600 rounded-lg font-medium hover:bg-blue-50 transition-colors"
+              className="px-6 py-3 bg-white text-teal-600 rounded-lg font-medium hover:bg-teal-50 transition-colors"
             >
               Notify Me
             </button>
           </form>
         ) : (
-          <div className="bg-blue-500 rounded-lg p-4 text-center">
+          <div className="bg-teal-500 rounded-lg p-4 text-center">
             <p className="font-medium">Thank you for subscribing! We'll keep you updated.</p>
           </div>
         )}

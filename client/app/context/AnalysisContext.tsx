@@ -23,6 +23,7 @@ export interface AnalysisData {
   }[];
   taxaAbundance: TaxaData[];
   lastUpdated: Date | null;
+  hasUploadedFile: boolean;
 }
 
 interface AnalysisContextType {
@@ -39,19 +40,16 @@ interface AnalysisContextType {
 }
 
 const defaultAnalysisData: AnalysisData = {
-  totalReads: 1247,
-  totalClusters: 3892,
-  novelTaxa: 156,
-  recentAnalyses: [
-    { id: '1', sample: 'DS-2024-001', location: 'Central Indian Basin', status: 'Completed', date: '2024-12-07' },
-    { id: '2', sample: 'DS-2024-002', location: 'Carlsberg Ridge', status: 'Processing', date: '2024-12-08' },
-    { id: '3', sample: 'DS-2024-003', location: 'Arabian Sea', status: 'Completed', date: '2024-12-06' },
-  ],
+  totalReads: 0,
+  totalClusters: 0,
+  novelTaxa: 0,
+  recentAnalyses: [],
   taxaAbundance: [],
   lastUpdated: null,
+  hasUploadedFile: false,
 };
 
-const AnalysisContext = createContext<AnalysisContextType | undefined>(undefined);
+export const AnalysisContext = createContext<AnalysisContextType | undefined>(undefined);
 
 export function AnalysisProvider({ children }: { children: ReactNode }) {
   const [analysisData, setAnalysisData] = useState<AnalysisData>(defaultAnalysisData);

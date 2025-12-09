@@ -1,206 +1,259 @@
 'use client';
 
-import { Database, Dna, Sparkles, MapPin } from 'lucide-react';
-import 'maplibre-gl/dist/maplibre-gl.css';
-
-// ✅ Correct imports for MapLibre
-import Map, { NavigationControl, Source, Layer } from "react-map-gl/maplibre";
-
+import { useContext } from 'react';
+import { Database, Dna, Sparkles } from 'lucide-react';
+import { AnalysisContext } from '../context/AnalysisContext';
 
 export default function Dashboard() {
-  const stats = [
-    { label: 'Total Samples', value: '1,247', icon: Database, color: 'blue' },
-    { label: 'Taxa Identified', value: '3,892', icon: Dna, color: 'green' },
-    { label: 'Novel Taxa', value: '156', icon: Sparkles, color: 'purple' },
-    { label: 'Active Sites', value: '12', icon: MapPin, color: 'orange' },
-  ];
+  const { analysisData } = useContext(AnalysisContext)!;
 
+  // Calculate pie chart data for ecosystem distribution
+  const ecosystemTotal = 100;
   const ecosystems = [
-    { name: 'Abyssal Plains', percentage: 35, color: 'bg-blue-600' },
-    { name: 'Hydrothermal Vents', percentage: 28, color: 'bg-red-600' },
-    { name: 'Seamounts', percentage: 22, color: 'bg-green-600' },
-    { name: 'Cold Seeps', percentage: 15, color: 'bg-purple-600' },
+    { name: 'Abyssal Plains', percentage: 35, color: '#1e3a5f' },
+    { name: 'Hydrothermal Vents', percentage: 28, color: '#c53030' },
+    { name: 'Seamounts', percentage: 22, color: '#22863a' },
+    { name: 'Cold Seeps', percentage: 15, color: '#6f42c1' },
   ];
 
-  const recentAnalyses = [
-    { id: '1', sample: 'DS-2024-001', location: 'Central Indian Basin', status: 'Completed', date: '2024-12-07' },
-    { id: '2', sample: 'DS-2024-002', location: 'Carlsberg Ridge', status: 'Processing', date: '2024-12-08' },
-    { id: '3', sample: 'DS-2024-003', location: 'Arabian Sea', status: 'Completed', date: '2024-12-06' },
-  ];
-
-  // Hardcoded novel taxa data points (deep-sea locations with intensity values)
-  const novelTaxaData = {
-    type: 'FeatureCollection',
-    features: [
-      // Indian Ocean - Central Indian Basin
-      { type: 'Feature', geometry: { type: 'Point', coordinates: [75.0, -5.0] }, properties: { intensity: 0.8 } },
-      { type: 'Feature', geometry: { type: 'Point', coordinates: [77.0, -6.0] }, properties: { intensity: 0.9 } },
-      { type: 'Feature', geometry: { type: 'Point', coordinates: [73.0, -4.5] }, properties: { intensity: 0.7 } },
-      
-      // Carlsberg Ridge
-      { type: 'Feature', geometry: { type: 'Point', coordinates: [57.0, 0.0] }, properties: { intensity: 0.85 } },
-      { type: 'Feature', geometry: { type: 'Point', coordinates: [58.5, 1.0] }, properties: { intensity: 0.75 } },
-      
-      // Arabian Sea
-      { type: 'Feature', geometry: { type: 'Point', coordinates: [65.0, 15.0] }, properties: { intensity: 0.6 } },
-      { type: 'Feature', geometry: { type: 'Point', coordinates: [67.0, 14.0] }, properties: { intensity: 0.65 } },
-      
-      // Pacific Ocean - Mariana Trench area
-      { type: 'Feature', geometry: { type: 'Point', coordinates: [145.0, 12.0] }, properties: { intensity: 0.95 } },
-      { type: 'Feature', geometry: { type: 'Point', coordinates: [146.5, 11.5] }, properties: { intensity: 0.9 } },
-      { type: 'Feature', geometry: { type: 'Point', coordinates: [144.0, 12.5] }, properties: { intensity: 0.85 } },
-      
-      // Atlantic Ocean - Mid-Atlantic Ridge
-      { type: 'Feature', geometry: { type: 'Point', coordinates: [-30.0, 25.0] }, properties: { intensity: 0.7 } },
-      { type: 'Feature', geometry: { type: 'Point', coordinates: [-28.0, 24.0] }, properties: { intensity: 0.75 } },
-      
-      // Southern Ocean - near Antarctica
-      { type: 'Feature', geometry: { type: 'Point', coordinates: [0.0, -60.0] }, properties: { intensity: 0.6 } },
-      { type: 'Feature', geometry: { type: 'Point', coordinates: [10.0, -58.0] }, properties: { intensity: 0.55 } },
-      
-      // Additional Indian Ocean sites
-      { type: 'Feature', geometry: { type: 'Point', coordinates: [80.0, -8.0] }, properties: { intensity: 0.7 } },
-      { type: 'Feature', geometry: { type: 'Point', coordinates: [72.0, -3.0] }, properties: { intensity: 0.65 } },
-    ]
-  };
-
-  const heatmapLayer = {
-    id: 'novel-taxa-heatmap',
-    type: 'heatmap',
-    source: 'novel-taxa',
-    maxzoom: 9,
-    paint: {
-      'heatmap-weight': {
-        property: 'intensity',
-        type: 'exponential',
-        stops: [
-          [0, 0],
-          [1, 1]
-        ]
-      },
-      'heatmap-intensity': {
-        stops: [
-          [0, 1],
-          [9, 2]
-        ]
-      },
-      'heatmap-color': [
-        'interpolate',
-        ['linear'],
-        ['heatmap-density'],
-        0, 'rgba(147, 51, 234, 0)',
-        0.2, 'rgba(147, 51, 234, 0.2)',
-        0.4, 'rgba(168, 85, 247, 0.4)',
-        0.6, 'rgba(192, 132, 252, 0.5)',
-        0.8, 'rgba(217, 70, 239, 0.6)',
-        1, 'rgba(236, 72, 153, 0.7)'
-      ],
-      'heatmap-radius': {
-        stops: [
-          [0, 25],
-          [9, 50]
-        ]
-      },
-      'heatmap-opacity': 0.5
-    }
-  };
+  // Generate SVG pie chart
+  let cumulativeAngle = 0;
+  const pieSegments = ecosystems.map((ecosystem) => {
+    const sliceAngle = (ecosystem.percentage / 100) * 360;
+    const startAngle = cumulativeAngle;
+    const endAngle = cumulativeAngle + sliceAngle;
+    
+    const startRad = (startAngle * Math.PI) / 180;
+    const endRad = (endAngle * Math.PI) / 180;
+    
+    const x1 = 50 + 40 * Math.cos(startRad);
+    const y1 = 50 + 40 * Math.sin(startRad);
+    const x2 = 50 + 40 * Math.cos(endRad);
+    const y2 = 50 + 40 * Math.sin(endRad);
+    
+    const largeArc = sliceAngle > 180 ? 1 : 0;
+    const pathData = `M 50 50 L ${x1} ${y1} A 40 40 0 ${largeArc} 1 ${x2} ${y2} Z`;
+    
+    cumulativeAngle = endAngle;
+    
+    return { ...ecosystem, pathData };
+  });
 
   return (
-    <div className="p-8 space-y-8">
-      <div>
-        <h2 className="text-3xl font-bold text-gray-900">Dashboard</h2>
-        <p className="text-gray-600 mt-1">Deep-sea biodiversity monitoring overview</p>
+    <div className="p-8 space-y-8 bg-gradient-to-br from-gray-900 to-gray-800 min-h-screen">
+      {/* Header */}
+      <div className="mb-8">
+        <h1 className="text-5xl font-bold text-white">Dashboard</h1>
+        <p className="text-lg text-gray-400 mt-2">Deep-sea biodiversity monitoring overview</p>
       </div>
 
-      <div className="grid grid-cols-4 gap-6">
-        {stats.map((stat) => {
-          const Icon = stat.icon;
-          return (
-            <div key={stat.label} className="bg-white rounded-lg p-6 border border-gray-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-gray-600 text-sm">{stat.label}</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-2">{stat.value}</p>
-                </div>
-                <div className={`w-12 h-12 bg-${stat.color}-100 rounded-lg flex items-center justify-center`}>
-                  <Icon className={`w-6 h-6 text-${stat.color}-600`} />
-                </div>
-              </div>
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Total Samples */}
+        <div className="bg-white rounded-lg p-6 shadow-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-600 text-base font-medium">Total Samples</p>
+              <p className="text-5xl font-bold text-gray-900 mt-2">{analysisData.totalReads}</p>
             </div>
-          );
-        })}
-      </div>
-
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
-        <h3 className="text-xl font-bold text-gray-900 mb-4">Abundance Heatmap</h3>
-        <div className="bg-gray-50 rounded-lg h-96 overflow-hidden relative">
-          <Map
-            initialViewState={{
-              longitude: 75,
-              latitude: 0,
-              zoom: 2,
-            }}
-            mapStyle="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
-            style={{ width: "100%", height: "100%" }}
-            projection="mercator"
-          >
-            {/* Heatmap Source and Layer */}
-            <Source id="novel-taxa" type="geojson" data={novelTaxaData}>
-              <Layer {...heatmapLayer} />
-            </Source>
-            
-            {/* Navigation Control */}
-            <div style={{ position: "absolute", top: 10, right: 10 }}>
-              <NavigationControl />
+            <div className="w-16 h-16 bg-blue-100 rounded-lg flex items-center justify-center">
+              <Database className="w-8 h-8 text-blue-600" />
             </div>
-          </Map>
-        </div>
-      </div>
-
-
-
-
-
-      <div className="grid grid-cols-2 gap-6">
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <h3 className="text-xl font-bold text-gray-900 mb-4">Recent Analyses</h3>
-          <div className="space-y-3">
-            {recentAnalyses.map((analysis) => (
-              <div key={analysis.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div>
-                  <p className="font-medium text-gray-900">{analysis.sample}</p>
-                  <p className="text-sm text-gray-600">{analysis.location}</p>
-                </div>
-                <div className="text-right">
-                  <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
-                    analysis.status === 'Completed' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
-                  }`}>
-                    {analysis.status}
-                  </span>
-                  <p className="text-xs text-gray-500 mt-1">{analysis.date}</p>
-                </div>
-              </div>
-            ))}
           </div>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <h3 className="text-xl font-bold text-gray-900 mb-4">Ecosystem Distribution</h3>
-          <div className="space-y-4">
-            {ecosystems.map((ecosystem) => (
-              <div key={ecosystem.name}>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-700">{ecosystem.name}</span>
-                  <span className="text-sm text-gray-600">{ecosystem.percentage}%</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div
-                    className={`${ecosystem.color} h-2 rounded-full`}
-                    style={{ width: `${ecosystem.percentage}%` }}
-                  />
+        {/* Taxa Identified & Novel */}
+        <div className="bg-white rounded-lg p-6 shadow-lg">
+          <p className="text-gray-600 text-base font-medium">Taxa Identified & Novel</p>
+          <div className="mt-4 flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <div className="w-10 h-10 bg-teal-100 rounded-lg flex items-center justify-center">
+                <Dna className="w-5 h-5 text-teal-600" />
+              </div>
+              <div>
+                <p className="text-3xl font-bold text-gray-900">{analysisData.totalClusters}</p>
+                <p className="text-sm text-gray-600">Identified</p>
+              </div>
+            </div>
+            <div className="w-px h-12 bg-gray-200"></div>
+            <div className="flex items-center gap-2">
+              <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                <Sparkles className="w-5 h-5 text-purple-600" />
+              </div>
+              <div>
+                <p className="text-3xl font-bold text-gray-900">{analysisData.novelTaxa}</p>
+                <p className="text-sm text-gray-600">Novel</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Taxonomic Abundance Heatmap */}
+      <div className="bg-white rounded-lg shadow-lg overflow-hidden flex flex-col flex-1">
+        <div className="bg-gradient-to-r from-teal-600 to-teal-700 px-6 py-4">
+          <h2 className="text-2xl font-bold text-white">Taxonomic Abundance</h2>
+        </div>
+        
+        {analysisData.taxaAbundance.length > 0 ? (
+          <div className="p-6 overflow-auto flex-1 flex flex-col">
+            {/* Heatmap Grid - Extra Large */}
+            <div className="flex-1 flex flex-col">
+              {/* Top legend for samples */}
+              <div className="flex items-end gap-0 mb-1">
+                <div className="w-72"></div>
+                <div className="flex gap-0">
+                  {Array.from({ length: Math.max(20, analysisData.taxaAbundance.length) }).map((_, i) => (
+                    <div key={`sample-${i}`} className="w-14 h-12 flex items-center justify-center text-sm font-bold text-gray-800">
+                      {i % 5 === 0 ? i + 1 : ''}
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))}
+
+              {/* Heatmap rows */}
+              <div className="flex gap-0 flex-1">
+                {/* Taxa labels */}
+                <div className="flex flex-col gap-0">
+                  {analysisData.taxaAbundance.map((taxa: any, index: number) => (
+                    <div key={`taxa-label-${index}`} className="h-16 flex items-center pr-3 text-base font-bold text-gray-800 w-72 truncate" title={taxa.genus}>
+                      {taxa.genus}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Heatmap cells */}
+                <div className="flex gap-0 flex-1">
+                  {Array.from({ length: Math.max(20, analysisData.taxaAbundance.length) }).map((_, sampleIdx) => (
+                    <div key={`sample-col-${sampleIdx}`} className="flex flex-col gap-0 flex-1">
+                      {analysisData.taxaAbundance.map((taxa: any, taxaIdx: number) => {
+                        // Distribute percentage across sample columns with some variation
+                        const basePercentage = taxa.percentage;
+                        const variation = Math.sin((sampleIdx + taxaIdx) * 0.5) * 30;
+                        const percentage = Math.max(0, Math.min(100, basePercentage + variation));
+
+                        // Color intensity based on percentage
+                        let color = '#ffffff';
+                        if (percentage >= 75) {
+                          color = '#991b1b'; // Dark red
+                        } else if (percentage >= 50) {
+                          color = '#dc2626'; // Red
+                        } else if (percentage >= 30) {
+                          color = '#f97316'; // Orange
+                        } else if (percentage >= 15) {
+                          color = '#fbbf24'; // Yellow
+                        } else if (percentage >= 5) {
+                          color = '#60a5fa'; // Light blue
+                        } else if (percentage > 0) {
+                          color = '#e5e7eb'; // Very light gray
+                        }
+
+                        return (
+                          <div
+                            key={`cell-${sampleIdx}-${taxaIdx}`}
+                            className="flex-1 h-16 border-2 border-gray-300 cursor-pointer hover:opacity-80 transition-opacity"
+                            style={{ backgroundColor: color }}
+                            title={`${taxa.genus} (Sample ${sampleIdx + 1}): ${percentage.toFixed(1)}%`}
+                          />
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Legend */}
+            <div className="mt-6 flex items-center gap-4 bg-gray-50 p-4 rounded-lg">
+              <span className="text-base font-bold text-gray-800">Abundance Legend:</span>
+              <div className="flex items-center gap-4">
+                {[
+                  { color: '#991b1b', label: '75-100%' },
+                  { color: '#dc2626', label: '50-75%' },
+                  { color: '#f97316', label: '30-50%' },
+                  { color: '#fbbf24', label: '15-30%' },
+                  { color: '#60a5fa', label: '5-15%' },
+                  { color: '#e5e7eb', label: '<5%' },
+                ].map((item) => (
+                  <div key={item.label} className="flex items-center gap-2">
+                    <div
+                      className="w-8 h-8 border-2 border-gray-400"
+                      style={{ backgroundColor: item.color }}
+                    />
+                    <span className="text-base font-semibold text-gray-800">{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="px-6 py-16 text-center flex items-center justify-center flex-1">
+            <p className="text-gray-500 text-2xl font-semibold">No taxa data yet. Upload a FASTA or FASTQ file to begin analysis.</p>
+          </div>
+        )}
+      </div>
+
+      {/* Recent Analyses & Ecosystem Distribution */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Recent Analyses */}
+        <div className="bg-gradient-to-br from-teal-600 to-teal-700 rounded-lg shadow-lg p-6">
+          <h2 className="text-2xl font-bold text-white mb-4">Recent Analyses</h2>
+          <div className="space-y-3">
+            {analysisData.recentAnalyses.length > 0 ? (
+              analysisData.recentAnalyses.map((analysis: any) => (
+                <div key={analysis.id} className="bg-teal-700 bg-opacity-50 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-semibold text-white text-base">{analysis.sample}</p>
+                      <p className="text-base text-teal-100">{analysis.location}</p>
+                    </div>
+                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                      analysis.status === 'Completed'
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-yellow-100 text-yellow-700'
+                    }`}>
+                      {analysis.status}
+                    </span>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-base text-teal-100 text-center py-4">No recent analyses</p>
+            )}
+          </div>
+        </div>
+
+        {/* Ecosystem Distribution Pie Chart */}
+        <div className="bg-white rounded-lg shadow-lg p-6">
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">Ecosystem Distribution</h2>
+          <div className="flex items-center gap-8">
+            {/* Pie Chart */}
+            <svg viewBox="0 0 100 100" className="w-32 h-32">
+              {pieSegments.map((segment, idx) => (
+                <path
+                  key={idx}
+                  d={segment.pathData}
+                  fill={segment.color}
+                  stroke="white"
+                  strokeWidth="2"
+                />
+              ))}
+              <circle cx="50" cy="50" r="25" fill="white" />
+            </svg>
+
+            {/* Legend */}
+            <div className="space-y-2">
+              {ecosystems.map((ecosystem) => (
+                <div key={ecosystem.name} className="flex items-center gap-2">
+                  <div
+                    className="w-3 h-3 rounded-full"
+                    style={{ backgroundColor: ecosystem.color }}
+                  />
+                  <span className="text-base text-gray-700">{ecosystem.name}</span>
+                  <span className="text-base font-semibold text-gray-900 ml-auto">{ecosystem.percentage}%</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>

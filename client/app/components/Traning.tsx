@@ -146,14 +146,14 @@ export default function Training(): JSX.Element {
   };
 
   return (
-    <div className="p-8 h-screen flex flex-col">
+    <div className="p-8 h-screen flex flex-col bg-gradient-to-br from-gray-900 to-gray-800">
       <div className="mb-6">
-        <h2 className="text-3xl font-bold text-gray-900">Model Training</h2>
-        <p className="text-gray-600 mt-1">Upload datasets and train RAG/embedding models</p>
+        <h2 className="text-3xl font-bold text-white">Model Training</h2>
+        <p className="text-gray-300 mt-1">Upload datasets and train RAG/embedding models</p>
       </div>
 
       <div className="flex-1 grid grid-cols-3 gap-6 min-h-0">
-        <div className="col-span-2 bg-white rounded-lg border border-gray-200 p-6 flex flex-col">
+        <div className="col-span-2 bg-white rounded-lg p-6 flex flex-col shadow-lg">
           <h3 className="text-lg font-bold text-gray-900 mb-4">New Training Session</h3>
 
           <div className="mb-4">
@@ -182,7 +182,7 @@ export default function Training(): JSX.Element {
                     onClick={() => setModelType(model.id as any)}
                     className={`flex items-center justify-center gap-2 py-3 px-4 rounded-lg font-medium transition-colors border-2 ${
                       modelType === model.id
-                        ? 'border-blue-600 bg-blue-50 text-blue-700'
+                        ? 'border-teal-600 bg-teal-50 text-teal-700'
                         : 'border-gray-200 bg-gray-50 text-gray-700 hover:border-gray-300'
                     }`}
                   >
@@ -200,7 +200,7 @@ export default function Training(): JSX.Element {
               onDrop={handleDrop}
               onDragOver={(e) => e.preventDefault()}
               onClick={() => fileInputRef.current?.click()}
-              className="flex-1 border-2 border-dashed border-gray-300 rounded-lg p-8 flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 transition-colors"
+              className="flex-1 border-2 border-dashed border-gray-300 rounded-lg p-8 flex flex-col items-center justify-center cursor-pointer hover:border-teal-400 transition-colors"
             >
               <input ref={fileInputRef} type="file" onChange={handleFileSelect} className="hidden" />
               <Upload className="w-12 h-12 text-gray-400 mb-4" />
@@ -214,14 +214,14 @@ export default function Training(): JSX.Element {
           <button
             onClick={handleStartTraining}
             disabled={isTraining || !selectedFile || !sessionName}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+            className="w-full bg-teal-600 text-white py-3 rounded-lg font-medium hover:bg-teal-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
           >
             <Brain className="w-5 h-5" />
             {isTraining ? 'Adding Session...' : 'Start Training (Mock)'}
           </button>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-6 flex flex-col">
+        <div className="bg-white rounded-lg p-6 flex flex-col shadow-lg">
           <h3 className="text-lg font-bold text-gray-900 mb-4">Recent Training (Mock Data)</h3>
           <div className="flex-1 overflow-y-auto space-y-3">
             {loading ? (

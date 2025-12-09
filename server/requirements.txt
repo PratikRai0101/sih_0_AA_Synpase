@@ -6,8 +6,8 @@ transformers
 numpy
 pandas
 umap-learn
-hdbscan
 biopython
 matplotlib
 seaborn
 websockets
+aiohttp

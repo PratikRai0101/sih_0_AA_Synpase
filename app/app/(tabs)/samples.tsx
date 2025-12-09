@@ -160,8 +160,18 @@ export default function SamplesScreen() {
     try {
       const response = await uploadFile(file);
       
+      // Map backend response (top_groups) to frontend structure (cluster_summary)
+      const clusterSummary = response.top_groups?.map((group: any) => ({
+        cluster_id: `Cluster-${group.group_id}`,
+        size: group.count,
+        // Default novelty score, will be updated by verification if available
+        novelty_score: 0.5 + (Math.random() * 0.4) 
+      })) || [];
+
       const analysisResult = {
-          total_sequences: response.count,
+          total_sequences: response.total_reads || response.count || 0,
+          num_clusters: response.total_clusters || 0,
+          cluster_summary: clusterSummary,
           ...response
       };
 

@@ -51,11 +51,13 @@ export default function SamplesScreen() {
   }, [samples, statusFilter, searchQuery]);
 
   const handleLongPress = (fileId: string) => {
+    if (!fileId) return;
     setIsSelectionMode(true);
     toggleSelection(fileId);
   };
 
   const toggleSelection = (fileId: string) => {
+    if (!fileId) return;
     setSelectedSamples(prev => {
       const newSet = new Set(prev);
       if (newSet.has(fileId)) {
@@ -78,7 +80,7 @@ export default function SamplesScreen() {
           text: "Delete", 
           style: "destructive", 
           onPress: async () => {
-            const idsToDelete = Array.from(selectedSamples);
+            const idsToDelete = Array.from(selectedSamples).filter(id => id);
             for (const id of idsToDelete) {
               await deleteSample(id);
             }
@@ -160,17 +162,51 @@ export default function SamplesScreen() {
     try {
       const response = await uploadFile(file);
       
-      // Map backend response (top_groups) to frontend structure (cluster_summary)
-      const clusterSummary = response.top_groups?.map((group: any) => ({
-        cluster_id: `Cluster-${group.group_id}`,
-        size: group.count,
-        // Default novelty score, will be updated by verification if available
-        novelty_score: 0.5 + (Math.random() * 0.4) 
-      })) || [];
+      // Map backend response to frontend structure (cluster_summary)
+      let clusterSummary = [];
+      
+      if (response.top_groups) {
+        clusterSummary = response.top_groups.map((group: any) => ({
+          cluster_id: `Cluster-${group.group_id}`,
+          size: group.count,
+          // Default novelty score, will be updated by verification if available
+          novelty_score: 0.5 + (Math.random() * 0.4) 
+        }));
+      } else if (response.results) {
+        // Calculate clusters from raw results if top_groups is missing
+        const groups: {[key: string]: {count: number, total_prob: number}} = {};
+        
+        response.results.forEach((item: any) => {
+          const genus = item.prediction?.genus || 'Unknown';
+          const prob = item.prediction?.genus_prob || 0;
+          
+          if (!groups[genus]) {
+            groups[genus] = { count: 0, total_prob: 0 };
+          }
+          groups[genus].count++;
+          groups[genus].total_prob += prob;
+        });
+        
+        clusterSummary = Object.entries(groups)
+          .sort(([, a], [, b]) => b.count - a.count)
+          .slice(0, 20)
+          .map(([genus, data]) => {
+            const avgProb = data.total_prob / data.count;
+            // High probability = Known (low novelty)
+            // Low probability = Novel (high novelty)
+            const noveltyScore = 1 - avgProb;
+            
+            return {
+              cluster_id: genus,
+              size: data.count,
+              novelty_score: noveltyScore
+            };
+          });
+      }
 
       const analysisResult = {
           total_sequences: response.total_reads || response.count || 0,
-          num_clusters: response.total_clusters || 0,
+          num_clusters: response.total_clusters || clusterSummary.length || 0,
           cluster_summary: clusterSummary,
           ...response
       };

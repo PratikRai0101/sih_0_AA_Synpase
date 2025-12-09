@@ -84,6 +84,27 @@ export const clearAllSamples = async () => {
 };
 
 export const deleteSampleFromDb = async (fileId: string) => {
-  if (!db) await initDatabase();
-  await db.runAsync('DELETE FROM samples WHERE fileId = ?', [fileId]);
+  if (!fileId) {
+    console.warn('deleteSampleFromDb called with null or undefined fileId');
+    return;
+  }
+  
+  if (!db) {
+    try {
+      await initDatabase();
+    } catch (e) {
+      console.error('Failed to initialize database in deleteSampleFromDb', e);
+      throw e;
+    }
+  }
+
+  try {
+    console.log(`Deleting sample with fileId: ${fileId}`);
+    // Use array for bind parameters
+    await db.runAsync('DELETE FROM samples WHERE fileId = ?', [fileId]);
+    console.log(`Successfully deleted sample with fileId: ${fileId}`);
+  } catch (error) {
+    console.error('Error in deleteSampleFromDb:', error);
+    throw error;
+  }
 };

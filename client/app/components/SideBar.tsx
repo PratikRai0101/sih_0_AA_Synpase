@@ -23,7 +23,6 @@ export default function Sidebar({ currentPage, onNavigate }: SidebarProps) {
           </div>
           <div>
             <h1 className="text-xl font-bold text-white">SamudraSetu</h1>
-            <p className="text-xs text-gray-400">CMLRE eDNA Platform</p>
           </div>
         </div>
       </div>
@@ -51,11 +50,7 @@ export default function Sidebar({ currentPage, onNavigate }: SidebarProps) {
         </div>
       </nav>
 
-      <div className="p-4 border-t border-gray-700">
-        <div className="text-xs text-gray-400 text-center">
-          Centre for Marine Living<br />Resources and Ecology
-        </div>
-      </div>
+      
     </div>
   );
 }

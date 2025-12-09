@@ -20,8 +20,34 @@ export default function AnalysisDetailScreen() {
   }
 
   const analysis = sample.latestAnalysis || {};
-  const clusters = analysis.cluster_summary || [];
-  const totalSequences = analysis.total_sequences || analysis.count || 0;
+  let clusters = analysis.cluster_summary || [];
+
+  // Fallback for new backend structure if cluster_summary is missing but top_groups exists
+  if (clusters.length === 0 && analysis.top_groups) {
+    clusters = analysis.top_groups.map((group: any) => {
+      const update = sample.verificationUpdates?.find((u: any) => u.cluster_id === group.group_id);
+      
+      let novelty_score = 0;
+      let name = `Cluster ${group.group_id}`;
+      
+      if (update) {
+        if (update.match_percentage !== undefined) {
+          novelty_score = 1 - (update.match_percentage / 100);
+        }
+        if (update.description) {
+          name = update.description.split('(')[0].trim();
+        }
+      }
+      
+      return {
+        cluster_id: name,
+        size: group.count,
+        novelty_score: novelty_score
+      };
+    });
+  }
+
+  const totalSequences = analysis.total_sequences || analysis.total_reads || analysis.count || 0;
 
   // Calculate Analytics
   const analytics = useMemo(() => {

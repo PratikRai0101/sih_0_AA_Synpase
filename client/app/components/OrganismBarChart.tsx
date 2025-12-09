@@ -1,17 +1,62 @@
 'use client';
 
-import { useContext } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell, ResponsiveContainer } from 'recharts';
 import { AnalysisContext } from '../context/AnalysisContext';
 
 const OrganismBarChart = () => {
   const { analysisData } = useContext(AnalysisContext)!;
+  const [chartData, setChartData] = useState<any[]>([]);
 
-  // Get top 10 organisms and format for bar chart
-  const chartData = analysisData.taxaAbundance.slice(0, 10).map((taxa: any) => ({
-    name: taxa.genus,
-    percentage: parseFloat(taxa.percentage.toFixed(2)),
-  }));
+  useEffect(() => {
+    fetchHistoryData();
+  }, []);
+
+  const fetchHistoryData = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/history');
+      if (response.ok) {
+        const data = await response.json();
+        const history = data.history || [];
+        
+        // Aggregate organism data from all analysis records
+        const genusCount: { [key: string]: { count: number, total: number } } = {};
+        let totalSequences = 0;
+        
+        history.forEach((item: any) => {
+          if (item.type === 'analysis' && item.result_data?.top_groups) {
+            item.result_data.top_groups.forEach((group: any) => {
+              const genusName = group.genus || `Organism ${group.group_id + 1}`;
+              if (!genusCount[genusName]) {
+                genusCount[genusName] = { count: 0, total: 0 };
+              }
+              genusCount[genusName].count += group.count;
+              totalSequences += group.count;
+            });
+          }
+        });
+        
+        // Calculate percentages and format for chart
+        const formattedData = Object.entries(genusCount)
+          .map(([name, data]) => ({
+            name,
+            percentage: totalSequences > 0 ? (data.count / totalSequences) * 100 : 0,
+          }))
+          .sort((a, b) => b.percentage - a.percentage)
+          .slice(0, 10);
+        
+        setChartData(formattedData);
+      }
+    } catch (error) {
+      console.error('Error fetching history data:', error);
+      // Fallback to context data
+      const fallbackData = analysisData.taxaAbundance.slice(0, 10).map((taxa: any) => ({
+        name: taxa.genus,
+        percentage: parseFloat(taxa.percentage.toFixed(2)),
+      }));
+      setChartData(fallbackData);
+    }
+  };
 
   // Custom color based on percentage
   const getBarColor = (percentage: number) => {
@@ -22,7 +67,7 @@ const OrganismBarChart = () => {
     return '#60a5fa'; // blue
   };
 
-  if (analysisData.taxaAbundance.length === 0) {
+  if (chartData.length === 0) {
     return (
       <div className="bg-white rounded-lg shadow-lg p-8 text-center">
         <p className="text-gray-500 text-lg">No data available yet</p>
@@ -51,7 +96,7 @@ const OrganismBarChart = () => {
       </ResponsiveContainer>
       <div className="mt-6 p-4 bg-blue-50 rounded-lg border-l-4 border-blue-500">
         <p className="text-sm text-gray-700">
-          <span className="font-semibold">Total organisms detected:</span> {analysisData.taxaAbundance.length}
+          <span className="font-semibold">Total organisms detected:</span> {chartData.length}
         </p>
       </div>
     </div>

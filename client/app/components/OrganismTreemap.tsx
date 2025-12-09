@@ -1,25 +1,68 @@
 'use client';
 
-import { useContext } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { ResponsiveContainer, Treemap, Tooltip } from 'recharts';
 import { AnalysisContext } from '../context/AnalysisContext';
 
 const OrganismTreemap = () => {
   const { analysisData } = useContext(AnalysisContext)!;
+  const [chartData, setChartData] = useState<any[]>([]);
 
-  // Get top 10 organisms and format for treemap
-  const organisms = analysisData.taxaAbundance.slice(0, 10);
+  useEffect(() => {
+    fetchHistoryData();
+  }, []);
 
-  // Create treemap data structure
-  const chartData = [
-    {
-      name: 'Organisms',
-      children: organisms.map((taxa: any) => ({
-        name: taxa.genus,
-        value: parseFloat(taxa.percentage.toFixed(2)),
-      })),
-    },
-  ];
+  const fetchHistoryData = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/history');
+      if (response.ok) {
+        const data = await response.json();
+        const history = data.history || [];
+        
+        // Aggregate organism data from all analysis records
+        const genusCount: { [key: string]: { count: number, total: number } } = {};
+        let totalSequences = 0;
+        
+        history.forEach((item: any) => {
+          if (item.type === 'analysis' && item.result_data?.top_groups) {
+            item.result_data.top_groups.forEach((group: any) => {
+              const genusName = group.genus || `Organism ${group.group_id + 1}`;
+              if (!genusCount[genusName]) {
+                genusCount[genusName] = { count: 0, total: 0 };
+              }
+              genusCount[genusName].count += group.count;
+              totalSequences += group.count;
+            });
+          }
+        });
+        
+        // Calculate percentages and format for treemap
+        const organisms = Object.entries(genusCount)
+          .map(([name, data]) => ({
+            name,
+            value: totalSequences > 0 ? (data.count / totalSequences) * 100 : 0,
+          }))
+          .sort((a, b) => b.value - a.value)
+          .slice(0, 10);
+        
+        setChartData([{
+          name: 'Organisms',
+          children: organisms,
+        }]);
+      }
+    } catch (error) {
+      console.error('Error fetching history data:', error);
+      // Fallback to context data
+      const organisms = analysisData.taxaAbundance.slice(0, 10);
+      setChartData([{
+        name: 'Organisms',
+        children: organisms.map((taxa: any) => ({
+          name: taxa.genus,
+          value: parseFloat(taxa.percentage.toFixed(2)),
+        })),
+      }]);
+    }
+  };
 
   // Custom color based on percentage
   const getColor = (value: number | undefined) => {
@@ -91,7 +134,7 @@ const OrganismTreemap = () => {
     );
   };
 
-  if (analysisData.taxaAbundance.length === 0) {
+  if (!chartData[0] || chartData[0].children.length === 0) {
     return (
       <div className="bg-white rounded-lg shadow-lg p-8 text-center">
         <p className="text-gray-500 text-lg">No data available yet</p>
@@ -133,22 +176,22 @@ const OrganismTreemap = () => {
         <div className="p-4 bg-red-50 rounded-lg border-l-4 border-red-500">
           <p className="text-xs font-semibold text-gray-600 uppercase">Highest Abundance</p>
           <p className="text-2xl font-bold text-red-600 mt-1">
-            {organisms.length > 0 ? `${organisms[0].percentage.toFixed(2)}%` : 'N/A'}
+            {chartData[0]?.children.length > 0 ? `${chartData[0].children[0].value.toFixed(2)}%` : 'N/A'}
           </p>
-          <p className="text-xs text-gray-500 mt-1">{organisms.length > 0 ? organisms[0].genus : ''}</p>
+          <p className="text-xs text-gray-500 mt-1">{chartData[0]?.children.length > 0 ? chartData[0].children[0].name : ''}</p>
         </div>
 
         <div className="p-4 bg-yellow-50 rounded-lg border-l-4 border-yellow-500">
           <p className="text-xs font-semibold text-gray-600 uppercase">Lowest Abundance</p>
           <p className="text-2xl font-bold text-yellow-600 mt-1">
-            {organisms.length > 0 ? `${organisms[organisms.length - 1].percentage.toFixed(2)}%` : 'N/A'}
+            {chartData[0]?.children.length > 0 ? `${chartData[0].children[chartData[0].children.length - 1].value.toFixed(2)}%` : 'N/A'}
           </p>
-          <p className="text-xs text-gray-500 mt-1">{organisms.length > 0 ? organisms[organisms.length - 1].genus : ''}</p>
+          <p className="text-xs text-gray-500 mt-1">{chartData[0]?.children.length > 0 ? chartData[0].children[chartData[0].children.length - 1].name : ''}</p>
         </div>
 
         <div className="p-4 bg-blue-50 rounded-lg border-l-4 border-blue-500">
           <p className="text-xs font-semibold text-gray-600 uppercase">Total Organisms</p>
-          <p className="text-2xl font-bold text-blue-600 mt-1">{analysisData.taxaAbundance.length}</p>
+          <p className="text-2xl font-bold text-blue-600 mt-1">{chartData[0]?.children.length || 0}</p>
           <p className="text-xs text-gray-500 mt-1">Detected</p>
         </div>
       </div>

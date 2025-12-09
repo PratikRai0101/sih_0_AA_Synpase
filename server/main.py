@@ -1,16 +1,43 @@
 from fastapi import FastAPI, WebSocket, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from Bio import SeqIO
 import shutil
 import os
 import uuid
 import aiohttp
 import asyncio
+import requests
+import pandas as pd
+import time
 
 from utils.utils import set_global_seed
+from database import (
+    init_database,
+    add_training_record,
+    add_analysis_record,
+    update_analysis_status,
+    get_combined_history,
+    delete_training_record,
+    delete_analysis_record,
+    clear_all_history
+)
 # NOTE: ClusterEngine import removed - using external API instead
+from module.model_handler import DNABertEngine
+from module.vector_memory import BioMemory
 
 set_global_seed(42)
+init_database()
+
+# Initialize AI Engine and Vector Memory
+try:
+    dna_bert_engine = DNABertEngine()
+    bio_memory = BioMemory()
+    print("AI Engine and Vector Memory initialized successfully")
+except Exception as e:
+    print(f"Warning: Could not initialize AI components: {e}")
+    dna_bert_engine = None
+    bio_memory = None
 
 app = FastAPI()
 
@@ -28,6 +55,166 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # External API endpoint
 EXTERNAL_API_URL = "https://pug-c-776087882401.europe-west1.run.app"
 
+class TextRequest(BaseModel):
+    sequence: str
+
+@app.post("/train")
+async def add_knowledge(
+    file: UploadFile = File(...),
+    depth: str = Form(""),
+    latitude: str = Form(""),
+    longitude: str = Form(""),
+    collectionDate: str = Form(""),
+    voyage: str = Form("")
+):
+    """
+    Accepts a CSV/FASTA/FASTQ file with metadata for training.
+    Returns training statistics and metadata.
+    """
+    file_id = str(uuid.uuid4())
+    file_extension = file.filename.split('.')[-1] if '.' in file.filename else 'csv'
+    file_path = os.path.join(UPLOAD_DIR, f"{file_id}.{file_extension}")
+    
+    start_time = time.time()
+    
+    try:
+        # 1. Save File
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        print(f"Training endpoint hit - File: {file.filename}, Metadata: depth={depth}, lat={latitude}, lon={longitude}, date={collectionDate}, voyage={voyage}")
+
+        # 2. Read file based on type
+        num_rows = 0
+        top_rows = []
+        sequences = []
+        species_labels = []
+        
+        if file_extension.lower() == 'csv':
+            try:
+                df = pd.read_csv(file_path)
+                num_rows = len(df)
+                top_rows = df.head(10).to_dict('records')
+                
+                # Extract sequences and species for vector storage (case-insensitive column matching)
+                # Convert column names to lowercase for matching
+                df_lower_cols = {col.lower(): col for col in df.columns}
+                
+                if 'sequence' in df_lower_cols:
+                    sequence_col = df_lower_cols['sequence']
+                    sequences = df[sequence_col].astype(str).tolist()
+                    
+                    # Use species/taxon column if available, otherwise use filename
+                    if 'species' in df_lower_cols:
+                        species_col = df_lower_cols['species']
+                        species_labels = df[species_col].astype(str).tolist()
+                    elif 'taxon' in df_lower_cols:
+                        taxon_col = df_lower_cols['taxon']
+                        species_labels = df[taxon_col].astype(str).tolist()
+                    else:
+                        species_labels = [f"{voyage or file.filename}" for _ in range(len(sequences))]
+                
+                print(f"CSV file processed: {num_rows} rows, columns: {list(df.columns)}, sequences found: {len(sequences)}")
+            except Exception as csv_err:
+                raise HTTPException(status_code=400, detail=f"Invalid CSV format: {str(csv_err)}")
+                
+        elif file_extension.lower() in ['fasta', 'fa', 'fastq', 'fq']:
+            try:
+                # Determine format
+                seq_format = 'fasta' if file_extension.lower() in ['fasta', 'fa'] else 'fastq'
+                sequence_records = []
+                
+                for record in SeqIO.parse(file_path, seq_format):
+                    sequence_records.append({
+                        'id': record.id,
+                        'sequence': str(record.seq)[:50] + '...' if len(str(record.seq)) > 50 else str(record.seq),
+                        'length': len(record.seq)
+                    })
+                    sequences.append(str(record.seq))
+                    species_labels.append(record.id or f"{voyage or file.filename}")
+                
+                num_rows = len(sequence_records)
+                top_rows = sequence_records[:10]
+                print(f"{seq_format.upper()} file processed: {num_rows} sequences")
+            except Exception as seq_err:
+                raise HTTPException(status_code=400, detail=f"Invalid sequence file: {str(seq_err)}")
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_extension}")
+        
+        # 3. Generate embeddings and store in Qdrant
+        vectors_stored = False
+        if sequences and dna_bert_engine and bio_memory:
+            try:
+                print(f"Generating embeddings for {len(sequences)} sequences...")
+                embeddings = dna_bert_engine.process_sequences(sequences)
+                print(f"Generated embeddings shape: {embeddings.shape}")
+                
+                # Store in Qdrant
+                vectors_stored = bio_memory.add_knowledge(sequences, embeddings, species_labels)
+                if vectors_stored:
+                    print(f"Successfully stored {len(sequences)} sequences in Qdrant")
+                else:
+                    print("Failed to store sequences in Qdrant")
+            except Exception as vec_err:
+                print(f"Error processing vectors: {vec_err}")
+                import traceback
+                traceback.print_exc()
+        else:
+            if not sequences:
+                print("No sequences found in file for vector storage")
+            else:
+                print("AI components not available for vector processing")
+        
+        training_time = time.time() - start_time
+        
+        # Save to database
+        add_training_record(
+            file_id=file_id,
+            filename=file.filename,
+            file_type=file_extension,
+            num_rows=num_rows,
+            training_time=training_time,
+            depth=depth,
+            latitude=latitude,
+            longitude=longitude,
+            collection_date=collectionDate,
+            voyage=voyage,
+            status="completed"
+        )
+        
+        # Return response with metadata
+        return {
+            "message": f"Successfully processed {num_rows} records",
+            "model_trained": True,
+            "vectors_stored": vectors_stored,
+            "num_sequences": len(sequences),
+            "num_rows": num_rows,
+            "training_time": training_time,
+            "top_rows": top_rows,
+            "metadata": {
+                "depth": depth,
+                "latitude": latitude,
+                "longitude": longitude,
+                "collectionDate": collectionDate,
+                "voyage": voyage,
+                "filename": file.filename
+            }
+        }
+
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"Training Error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Training failed: {str(e)}")
+        
+    finally:
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except:
+                pass
 
 """
 Health Check
@@ -37,6 +224,72 @@ async def health_check():
     """Simple health check endpoint to verify backend is running"""
     return {"status": "ok", "message": "Backend is running"}
 
+@app.get("/history")
+async def get_history():
+    """Get combined history of all training and analysis records"""
+    try:
+        history = get_combined_history()
+        return {"history": history}
+    except Exception as e:
+        print(f"Error fetching history: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch history: {str(e)}")
+
+@app.delete("/history/{record_type}/{file_id}")
+async def delete_history_record(record_type: str, file_id: str):
+    """Delete a specific history record"""
+    try:
+        if record_type == "training":
+            success = delete_training_record(file_id)
+        elif record_type == "analysis":
+            success = delete_analysis_record(file_id)
+        else:
+            raise HTTPException(status_code=400, detail="Invalid record type")
+        
+        if success:
+            return {"message": "Record deleted successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Record not found")
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"Error deleting record: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete record: {str(e)}")
+
+@app.delete("/history")
+async def clear_all_history_endpoint():
+    """Clear all history records"""
+    try:
+        clear_all_history()
+        return {"message": "All history cleared successfully"}
+    except Exception as e:
+        print(f"Error clearing history: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to clear history: {str(e)}")
+
+@app.post("/api/text-analysis")
+async def text_analysis_proxy(request: TextRequest):
+    external_api_url = "https://pug-c-776087882401.europe-west1.run.app/predict/sequence"
+    clean_sequence = request.sequence.strip()
+    
+    try:
+        try:
+            response = requests.post(
+                external_api_url, 
+                data={"sequence": clean_sequence}
+            )
+
+        except requests.RequestException as req_err:
+            raise HTTPException(status_code=502, detail=f"External API request failed: {str(req_err)}")
+        
+
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise HTTPException(status_code=response.status_code, detail=f"External API error: {response.text}")
+
+    except requests.Timeout:
+        raise HTTPException(status_code=504, detail="External API timeout")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Proxy error: {str(e)}")
 
 """"
 Upload Files
@@ -69,11 +322,13 @@ async def websocket_endpoint(websocket: WebSocket, file_id: str):
     # Try to find the file with either extension
     file_path = None
     file_format = None
+    filename = None
     for ext, fmt in [("fastq", "fastq"), ("fasta", "fasta"), ("fa", "fasta"), ("fq", "fastq")]:
         potential_path = os.path.join(UPLOAD_DIR, f"{file_id}.{ext}")
         if os.path.exists(potential_path):
             file_path = potential_path
             file_format = fmt
+            filename = f"{file_id}.{ext}"
             break
 
     try:
@@ -229,6 +484,8 @@ async def websocket_endpoint(websocket: WebSocket, file_id: str):
                     percentage = (data["count"] / count * 100) if count > 0 else 0
                     top_groups.append({
                         "group_id": idx,
+                        "genus": genus,
+                        "class": data["class"],
                         "count": data["count"],
                         "percentage": round(percentage, 2)
                     })
@@ -306,11 +563,28 @@ async def websocket_endpoint(websocket: WebSocket, file_id: str):
             await websocket.send_json({"type": "complete", "message": "Analysis Finished."})
             print("Analysis complete, waiting before closing connection...")
             
+            # Save to database
+            add_analysis_record(
+                file_id=file_id,
+                filename=filename or "unknown",
+                file_type=file_format or "unknown",
+                sequence_count=sequence_count,
+                total_clusters=total_clusters,
+                total_reads=count,
+                status="completed",
+                result_data={
+                    "total_reads": count,
+                    "total_clusters": total_clusters,
+                    "top_groups": top_groups[:5] if top_groups else []
+                }
+            )
+            
             # Give client time to receive all messages before closing
             await asyncio.sleep(1.0)
 
     except aiohttp.ClientError as e:
         print(f"Client error: {e}")
+        update_analysis_status(file_id, "failed")
         try:
             await websocket.send_json({"type": "error", "message": f"Connection error: {str(e)}"})
             await asyncio.sleep(0.2)
@@ -318,6 +592,7 @@ async def websocket_endpoint(websocket: WebSocket, file_id: str):
             pass
     except Exception as e:
         print(f"General error: {e}")
+        update_analysis_status(file_id, "failed")
         import traceback
         traceback.print_exc()
         try:

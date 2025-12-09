@@ -72,6 +72,20 @@ export default function Training(): JSX.Element {
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
+      formData.append('depth', depth);
+      formData.append('latitude', latitude);
+      formData.append('longitude', longitude);
+      formData.append('collectionDate', collectionDate);
+      formData.append('voyage', voyage);
+
+      console.log('Sending training request with metadata:', {
+        filename: selectedFile.name,
+        depth,
+        latitude,
+        longitude,
+        collectionDate,
+        voyage
+      });
 
       const response = await fetch('http://localhost:8000/train', {
         method: 'POST',
@@ -79,18 +93,21 @@ export default function Training(): JSX.Element {
       });
 
       if (!response.ok) {
-        throw new Error(`Training failed with status: ${response.status}`);
+        const errorText = await response.text();
+        throw new Error(`Training failed with status: ${response.status} - ${errorText}`);
       }
 
       const result = await response.json();
       
+      console.log('Training response:', result);
+      
       // Parse metadata and top rows
       const metadata: TrainingMetadata = {
-        depth,
-        latitude,
-        longitude,
-        collectionDate,
-        voyage,
+        depth: result.metadata?.depth || depth,
+        latitude: result.metadata?.latitude || latitude,
+        longitude: result.metadata?.longitude || longitude,
+        collectionDate: result.metadata?.collectionDate || collectionDate,
+        voyage: result.metadata?.voyage || voyage,
         modelTrained: result.model_trained || true,
         numRows: result.num_rows || 0,
         trainingTime: result.training_time || 0,
@@ -108,6 +125,7 @@ export default function Training(): JSX.Element {
       ]);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Training error:', error);
       setLogs([
         ...logs,
         { type: 'error', message: `Training failed: ${errorMessage}` },

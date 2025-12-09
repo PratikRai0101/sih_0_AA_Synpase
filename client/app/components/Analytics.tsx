@@ -9,8 +9,7 @@ import { addToHistory, updateHistoryItem } from '../utils/uploadHistory';
 // --- Constants ---
 const API_BASE_URL = 'http://localhost:8000'; 
 const UPLOAD_ENDPOINT = `${API_BASE_URL}/upload`;
-// FIX: Point to local proxy to avoid CORS
-const TEXT_API_ENDPOINT = `${API_BASE_URL}/api/text-analysis`; 
+const PREDICT_SEQUENCE_ENDPOINT = `${API_BASE_URL}/api/text-analysis`;
 const WS_BASE_URL = 'ws://localhost:8000';
 const FILE_ID_KEY = 'edna_analysis_file_id';
 
@@ -250,80 +249,66 @@ export default function Analysis(): JSX.Element {
     }
 
     setIsAnalyzing(true);
-    setLogs([{ type: 'log', message: 'Starting upload and analysis...' }]);
-
-    // 1. Prepare the FormData payload
-    const formData = new FormData();
-    
-    if (uploadMode === 'file' && selectedFile) {
-        formData.append('file', selectedFile);
-        formData.append('type', fileType); 
-    } else if (uploadMode === 'text') {
-        const textBlob = new Blob([textInput], { type: 'text/plain' });
-        formData.append('file', textBlob, `input${fileType}`); 
-        formData.append('type', fileType);
-    }
-    
-    let newFileId: string | undefined;
+    setLogs([]);
+    setCurrentFileId(null);
 
     try {
-        // --- STEP 1: BLOCKING HTTP UPLOAD (Real fetch) ---
-        setLogs(prev => [...prev, { type: 'log', message: 'Uploading file to server...' }]);
+        if (uploadMode === 'text') {
+            const response = await fetch(PREDICT_SEQUENCE_ENDPOINT, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ sequence: textInput }), 
+            });
 
-        const response = await fetch(UPLOAD_ENDPOINT, {
-            method: 'POST',
-            body: formData, 
-        });
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`API Error: ${response.status} - ${errText}`);
+            }
+            
+            const result = await response.json();
+            setLogs([{ type: 'json_result', data: result } as any]);
+            setIsAnalyzing(false);
 
-        if (!response.ok) {
-            throw new Error(`Upload failed with status: ${response.status} ${response.statusText}`);
+        } else {
+            setLogs([{ type: 'log', message: 'Starting upload and analysis...' }]);
+            const formData = new FormData();
+            formData.append('file', selectedFile!);
+            formData.append('type', fileType); 
+
+            const response = await fetch(UPLOAD_ENDPOINT, { method: 'POST', body: formData });
+            if (!response.ok) throw new Error(`Upload failed: ${response.statusText}`);
+            
+            const result: UploadResponse = await response.json();
+            if (!result.file_id) throw new Error('No file ID returned');
+
+            setCurrentFileId(result.file_id);
+            localStorage.setItem(FILE_ID_KEY, result.file_id);
+            
+            // Create upload history entry
+            const fileName = selectedFile!.name;
+            analysisStatsRef.current.fileName = fileName;
+            
+            addToHistory({
+              id: result.file_id,
+              fileName: fileName,
+              fileType: fileType,
+              uploadDate: new Date().toISOString(),
+              fileSize: selectedFile!.size,
+              status: 'in-progress',
+            });
+            
+            connectWebSocket(result.file_id);
+            
+            setSelectedFile(null);
+            if (fileInputRef.current) fileInputRef.current.value = '';
         }
-        
-        const result: UploadResponse = await response.json();
-        newFileId = result.file_id;
-
-        if (!newFileId) {
-            throw new Error('Upload response missing file_id.');
-        }
-
-        // --- STEP 2: ESTABLISH WEBSOCKET CONNECTION ---
-        setLogs(prev => [...prev, { type: 'log', message: `Upload successful. ID: ${newFileId}. Opening log stream...` }]);
-
-        localStorage.setItem(FILE_ID_KEY, newFileId);
-        setCurrentFileId(newFileId);
-
-        // Create upload history entry
-        const fileName = uploadMode === 'file' && selectedFile 
-          ? selectedFile.name 
-          : `text-input${fileType}`;
-        
-        analysisStatsRef.current.fileName = fileName;
-        
-        addToHistory({
-          id: newFileId,
-          fileName: fileName,
-          fileType: uploadMode === 'file' ? fileType : 'text',
-          uploadDate: new Date().toISOString(),
-          fileSize: uploadMode === 'file' ? selectedFile?.size : undefined,
-          status: 'in-progress',
-        });
-        
-        connectWebSocket(newFileId);
-        
-        setSelectedFile(null);
-        setTextInput('');
-        if (fileInputRef.current) fileInputRef.current.value = '';
 
     } catch (error) {
         console.error('Analysis failed:', error);
         setLogs(prev => [...prev, { type: 'log', message: `Analysis failed: ${error instanceof Error ? error.message : String(error)}` }]);
-        
-        // Mark history entry as failed if we have a file ID
-        if (newFileId) {
-          updateHistoryItem(newFileId, { status: 'failed' });
-        }
-    } finally {
-        setIsAnalyzing(false); 
+        setIsAnalyzing(false);
     }
   };
 

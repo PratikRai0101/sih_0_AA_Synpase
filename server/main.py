@@ -96,12 +96,21 @@ async def add_knowledge(
                 num_rows = len(df)
                 top_rows = df.head(10).to_dict('records')
                 
-                # Extract sequences and species for vector storage
-                if 'sequence' in df.columns:
-                    sequences = df['sequence'].astype(str).tolist()
-                    # Use species column if available, otherwise use filename
-                    if 'species' in df.columns:
-                        species_labels = df['species'].astype(str).tolist()
+                # Extract sequences and species for vector storage (case-insensitive column matching)
+                # Convert column names to lowercase for matching
+                df_lower_cols = {col.lower(): col for col in df.columns}
+                
+                if 'sequence' in df_lower_cols:
+                    sequence_col = df_lower_cols['sequence']
+                    sequences = df[sequence_col].astype(str).tolist()
+                    
+                    # Use species/taxon column if available, otherwise use filename
+                    if 'species' in df_lower_cols:
+                        species_col = df_lower_cols['species']
+                        species_labels = df[species_col].astype(str).tolist()
+                    elif 'taxon' in df_lower_cols:
+                        taxon_col = df_lower_cols['taxon']
+                        species_labels = df[taxon_col].astype(str).tolist()
                     else:
                         species_labels = [f"{voyage or file.filename}" for _ in range(len(sequences))]
                 
